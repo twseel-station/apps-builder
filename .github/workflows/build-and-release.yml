@@ -21,6 +21,19 @@ on:
           - android
           - ios
         default: both
+      target_env:
+        description: 'Target Track Environment'
+        required: true
+        type: choice
+        options:
+          - test
+          - production
+        default: test
+      ref_branch:
+        description: 'Branch or Ref to build'
+        required: false
+        type: string
+        default: 'develop'
       flutter_version:
         description: 'Flutter Runtime Version'
         required: false
@@ -40,13 +53,16 @@ jobs:
           if [ -n "$TG_BOT" ] && [ -n "$TG_CHAT" ]; then
             APP="${{ inputs.app_name }}"
             PLATFORM="${{ inputs.target_platform }}"
+            ENV="${{ inputs.target_env }}"
+            REF="${{ inputs.ref_branch }}"
             ACTOR="${{ github.actor }}"
             
             TEXT="🌐 *[${APP}] 100% Free Public Store Runner Started*%0A%0A"
             TEXT+="• *App:* \`twseel-station/${APP}\`%0A"
-            TEXT+="• *Target:* \`${PLATFORM}\`%0A"
-            TEXT+="• *Trigger:* Manual Dispatch by *${ACTOR}*%0A"
-            TEXT+="• *Quota Billing:* 0.00$ (Unlimited Free Public Fleet)%0A"
+            TEXT+="• *Platform:* \`${PLATFORM}\`%0A"
+            TEXT+="• *Target Track:* *${ENV}* (Branch: \`${REF}\`)%0A"
+            TEXT+="• *Trigger:* by *${ACTOR}*%0A"
+            TEXT+="• *Quota Cost:* 0.00$ (Unlimited Free)%0A"
             
             curl -s -X POST "https://api.telegram.org/bot${TG_BOT}/sendMessage" \
               -d "chat_id=${TG_CHAT}" \
@@ -69,6 +85,7 @@ jobs:
         with:
           repository: twseel-station/${{ inputs.app_name }}
           token: ${{ secrets.GH_PAT }}
+          ref: ${{ inputs.ref_branch || 'develop' }}
           path: app-source
 
       - name: Setup Java 17
@@ -115,14 +132,22 @@ jobs:
       - name: Install Google Publisher API Tools
         run: pip install google-api-python-client oauth2client
 
-      - name: Upload to Google Play Internal Track
+      - name: Upload to Google Play Track
         env:
           PLAY_JSON: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
+          TARGET_ENV: ${{ inputs.target_env }}
         run: |
           if [ -n "$PLAY_JSON" ]; then
             echo "$PLAY_JSON" > /tmp/play-service-account.json
             BUNDLE_PATH="app-source/build/app/outputs/bundle/release/app-release.aab"
-            PLAY_JSON_PATH=/tmp/play-service-account.json BUNDLE_PATH="$BUNDLE_PATH" python builder-tools/scripts/upload_to_play.py
+            
+            TRACK="internal"
+            if [ "$TARGET_ENV" = "production" ]; then
+              TRACK="production"
+            fi
+            
+            echo "Deploying to Google Play track: $TRACK..."
+            PLAY_JSON_PATH=/tmp/play-service-account.json BUNDLE_PATH="$BUNDLE_PATH" TRACK_NAME="$TRACK" python builder-tools/scripts/upload_to_play.py
           fi
 
   build-ios:
@@ -140,6 +165,7 @@ jobs:
         with:
           repository: twseel-station/${{ inputs.app_name }}
           token: ${{ secrets.GH_PAT }}
+          ref: ${{ inputs.ref_branch || 'develop' }}
           path: app-source
 
       - name: Setup Flutter
@@ -159,11 +185,12 @@ jobs:
           cd app-source
           flutter build ipa --release --no-codesign
 
-      - name: Upload to Apple TestFlight
+      - name: Upload to Apple App Store / TestFlight
         env:
           APPLE_APP_STORE_KEY_P8: ${{ secrets.APPLE_APP_STORE_KEY_P8 }}
           APPLE_KEY_ID: ${{ secrets.APPLE_KEY_ID }}
           APPLE_ISSUER_ID: ${{ secrets.APPLE_ISSUER_ID }}
+          TARGET_ENV: ${{ inputs.target_env }}
         run: |
           if [ -n "$APPLE_APP_STORE_KEY_P8" ]; then
             mkdir -p ~/.appstoreconnect/private_keys
@@ -185,11 +212,13 @@ jobs:
           if [ -n "$TG_BOT" ] && [ -n "$TG_CHAT" ]; then
             APP="${{ inputs.app_name }}"
             PLATFORM="${{ inputs.target_platform }}"
+            ENV="${{ inputs.target_env }}"
             
             ANDROID_STATUS="${{ needs.build-android.result }}"
             IOS_STATUS="${{ needs.build-ios.result }}"
             
             TEXT="🏁 *[${APP}] Free Public Store Pipeline Finished*%0A%0A"
+            TEXT+="• *Track / Target:* *${ENV}*%0A"
             TEXT+="• *Android Build:* ${ANDROID_STATUS}%0A"
             TEXT+="• *iOS Build:* ${IOS_STATUS}%0A"
             TEXT+="• *Cost:* 0.00$ (Free)%0A"
