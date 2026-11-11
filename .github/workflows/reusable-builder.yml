@@ -144,7 +144,7 @@ jobs:
   build-ios:
     name: Build & Release iOS Package (.ipa)
     if: inputs.target_platform == 'ios' || inputs.target_platform == 'both'
-    runs-on: macos-14
+    runs-on: macos-latest
     steps:
       - name: Checkout Application Code
         uses: actions/checkout@v4
