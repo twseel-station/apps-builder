@@ -1,4 +1,5 @@
 name: Central Store Builder & Publisher (100% Free Public Runner)
+run-name: "Build & Release [${{ inputs.app_name }}] (${{ inputs.target_platform }}) - Track: ${{ inputs.target_env }} (${{ inputs.ref_branch }})"
 
 on:
   workflow_dispatch:
