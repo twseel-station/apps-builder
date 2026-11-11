@@ -123,57 +123,22 @@ jobs:
       - name: Build Android App Bundle (AAB)
         run: flutter build appbundle --release
 
-      - name: Upload to Google Play (Internal Testing)
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Google Publisher API Tools
+        run: pip install google-api-python-client oauth2client
+
+      - name: Download & Run Play Publisher Script
         env:
           PLAY_JSON: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
         run: |
           if [ -n "$PLAY_JSON" ]; then
-            echo "Preparing Google Play distribution..."
             echo "$PLAY_JSON" > /tmp/play-service-account.json
-            echo "AAB build completed successfully at build/app/outputs/bundle/release/app-release.aab"
-            
-            pip3 install google-api-python-client oauth2client
-            python3 -c "
-import json
-from oauth2client.service_account import ServiceAccountCredentials
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaFileUpload
-
-scope = ['https://www.googleapis.com/auth/androidpublisher']
-credentials = ServiceAccountCredentials.from_json_keyfile_name('/tmp/play-service-account.json', scope)
-service = build('androidpublisher', 'v3', credentials=credentials)
-
-package_name = 'com.mada.twseel_station_client'
-app_bundle_path = 'build/app/outputs/bundle/release/app-release.aab'
-
-edit = service.edits().insert(packageName=package_name, body={}).execute()
-edit_id = edit['id']
-
-bundle_response = service.edits().bundles().upload(
-    packageName=package_name,
-    editId=edit_id,
-    media_body=MediaFileUpload(app_bundle_path, mimetype='application/octet-stream')
-).execute()
-
-version_code = bundle_response['versionCode']
-print(f'Uploaded bundle with version code: {version_code}')
-
-track_response = service.edits().tracks().update(
-    packageName=package_name,
-    editId=edit_id,
-    track='internal',
-    body={
-        'releases': [{
-            'versionCodes': [str(version_code)],
-            'status': 'completed',
-            'name': '1.0.15 (Automated Builder Release)'
-        }]
-    }
-).execute()
-
-commit = service.edits().commit(packageName=package_name, editId=edit_id).execute()
-print(f'Release to internal testing committed successfully: {commit}')
-"
+            curl -s https://raw.githubusercontent.com/twseel-station/apps-builder/main/scripts/upload_to_play.py -o /tmp/upload_to_play.py
+            PLAY_JSON_PATH=/tmp/play-service-account.json python /tmp/upload_to_play.py
           fi
 
   build-ios:
