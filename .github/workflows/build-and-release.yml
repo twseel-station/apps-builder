@@ -120,9 +120,18 @@ jobs:
           flutter pub get
 
       - name: Build Android App Bundle (AAB)
+        env:
+          TARGET_ENV: ${{ inputs.target_env }}
         run: |
           cd app-source
-          flutter build appbundle --release
+          if [ "$TARGET_ENV" = "test" ]; then
+            echo "🔧 Compiling for TEST environment (test.twseelstation.com + Sandbox credentials)..."
+            DART_DEFINES="--dart-define=APP_ENV=test --dart-define=API_BASE_URL=https://test.twseelstation.com/api/v1/ --dart-define=API_DOMAIN=https://test.twseelstation.com --dart-define=RECEIPT_BASE_URL=https://test.twseelstation.com/api/v1/download-receipt/ --dart-define=MOYASAR_KEY=pk_test_q5NLbRofFc2WhoaLZya6ZqEzruNX2iU5TLUDnhCy --dart-define=PAYTABS_PROFILE_ID=107725 --dart-define=PAYTABS_CLIENT_KEY=CPKM99-DDTN6H-PHG6QB-HR299P --dart-define=PAYTABS_SERVER_KEY=SGJNHJM26T-JH9H6JNLKB-MJ6GMLHZMG"
+          else
+            echo "🚀 Compiling for PRODUCTION environment (dev.twseelstation.com + Live credentials)..."
+            DART_DEFINES="--dart-define=APP_ENV=production --dart-define=API_BASE_URL=https://dev.twseelstation.com/api/v1/ --dart-define=API_DOMAIN=https://dev.twseelstation.com --dart-define=RECEIPT_BASE_URL=https://dev.twseelstation.com/api/v1/download-receipt/ --dart-define=MOYASAR_KEY=pk_live_sxftSCxyNuiNxdW2T3jU4AJ2WTi4j2aaYtv9rgue --dart-define=PAYTABS_PROFILE_ID=107991 --dart-define=PAYTABS_CLIENT_KEY=CQKM99-DD7P6H-P9PVKN-PKBPKP --dart-define=PAYTABS_SERVER_KEY=SNJNHJM2M2-JH9Z9WKM6Z-G269DKMJZG"
+          fi
+          flutter build appbundle --release $DART_DEFINES
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -181,9 +190,18 @@ jobs:
           flutter pub get
 
       - name: Build iOS IPA
+        env:
+          TARGET_ENV: ${{ inputs.target_env }}
         run: |
           cd app-source
-          flutter build ipa --release --no-codesign
+          if [ "$TARGET_ENV" = "test" ]; then
+            echo "🔧 Compiling for TEST environment (test.twseelstation.com + Sandbox credentials)..."
+            DART_DEFINES="--dart-define=APP_ENV=test --dart-define=API_BASE_URL=https://test.twseelstation.com/api/v1/ --dart-define=API_DOMAIN=https://test.twseelstation.com --dart-define=RECEIPT_BASE_URL=https://test.twseelstation.com/api/v1/download-receipt/ --dart-define=MOYASAR_KEY=pk_test_q5NLbRofFc2WhoaLZya6ZqEzruNX2iU5TLUDnhCy --dart-define=PAYTABS_PROFILE_ID=107725 --dart-define=PAYTABS_CLIENT_KEY=CPKM99-DDTN6H-PHG6QB-HR299P --dart-define=PAYTABS_SERVER_KEY=SGJNHJM26T-JH9H6JNLKB-MJ6GMLHZMG"
+          else
+            echo "🚀 Compiling for PRODUCTION environment (dev.twseelstation.com + Live credentials)..."
+            DART_DEFINES="--dart-define=APP_ENV=production --dart-define=API_BASE_URL=https://dev.twseelstation.com/api/v1/ --dart-define=API_DOMAIN=https://dev.twseelstation.com --dart-define=RECEIPT_BASE_URL=https://dev.twseelstation.com/api/v1/download-receipt/ --dart-define=MOYASAR_KEY=pk_live_sxftSCxyNuiNxdW2T3jU4AJ2WTi4j2aaYtv9rgue --dart-define=PAYTABS_PROFILE_ID=107991 --dart-define=PAYTABS_CLIENT_KEY=CQKM99-DD7P6H-P9PVKN-PKBPKP --dart-define=PAYTABS_SERVER_KEY=SNJNHJM2M2-JH9Z9WKM6Z-G269DKMJZG"
+          fi
+          flutter build ipa --release --no-codesign $DART_DEFINES
 
       - name: Upload to Apple App Store / TestFlight
         env:
