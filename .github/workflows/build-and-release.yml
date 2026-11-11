@@ -122,14 +122,28 @@ jobs:
       - name: Build Android App Bundle (AAB)
         env:
           TARGET_ENV: ${{ inputs.target_env }}
+          API_URL_TEST: ${{ secrets.API_BASE_URL_TEST }}
+          API_URL_PROD: ${{ secrets.API_BASE_URL_PROD }}
+          API_DOM_TEST: ${{ secrets.API_DOMAIN_TEST }}
+          API_DOM_PROD: ${{ secrets.API_DOMAIN_PROD }}
+          RECEIPT_URL_TEST: ${{ secrets.RECEIPT_BASE_URL_TEST }}
+          RECEIPT_URL_PROD: ${{ secrets.RECEIPT_BASE_URL_PROD }}
+          MOYASAR_TEST: ${{ secrets.MOYASAR_KEY_TEST }}
+          MOYASAR_PROD: ${{ secrets.MOYASAR_KEY_PROD }}
+          PAYTABS_PID_TEST: ${{ secrets.PAYTABS_PROFILE_ID_TEST }}
+          PAYTABS_PID_PROD: ${{ secrets.PAYTABS_PROFILE_ID_PROD }}
+          PAYTABS_CKEY_TEST: ${{ secrets.PAYTABS_CLIENT_KEY_TEST }}
+          PAYTABS_CKEY_PROD: ${{ secrets.PAYTABS_CLIENT_KEY_PROD }}
+          PAYTABS_SKEY_TEST: ${{ secrets.PAYTABS_SERVER_KEY_TEST }}
+          PAYTABS_SKEY_PROD: ${{ secrets.PAYTABS_SERVER_KEY_PROD }}
         run: |
           cd app-source
           if [ "$TARGET_ENV" = "test" ]; then
-            echo "🔧 Compiling for TEST environment (test.twseelstation.com + Sandbox credentials)..."
-            DART_DEFINES="--dart-define=APP_ENV=test --dart-define=API_BASE_URL=https://test.twseelstation.com/api/v1/ --dart-define=API_DOMAIN=https://test.twseelstation.com --dart-define=RECEIPT_BASE_URL=https://test.twseelstation.com/api/v1/download-receipt/ --dart-define=MOYASAR_KEY=pk_test_q5NLbRofFc2WhoaLZya6ZqEzruNX2iU5TLUDnhCy --dart-define=PAYTABS_PROFILE_ID=107725 --dart-define=PAYTABS_CLIENT_KEY=CPKM99-DDTN6H-PHG6QB-HR299P --dart-define=PAYTABS_SERVER_KEY=SGJNHJM26T-JH9H6JNLKB-MJ6GMLHZMG"
+            echo "🔧 Compiling for TEST environment using GitHub Secrets..."
+            DART_DEFINES="--dart-define=APP_ENV=test --dart-define=API_BASE_URL=$API_URL_TEST --dart-define=API_DOMAIN=$API_DOM_TEST --dart-define=RECEIPT_BASE_URL=$RECEIPT_URL_TEST --dart-define=MOYASAR_KEY=$MOYASAR_TEST --dart-define=PAYTABS_PROFILE_ID=$PAYTABS_PID_TEST --dart-define=PAYTABS_CLIENT_KEY=$PAYTABS_CKEY_TEST --dart-define=PAYTABS_SERVER_KEY=$PAYTABS_SKEY_TEST"
           else
-            echo "🚀 Compiling for PRODUCTION environment (dev.twseelstation.com + Live credentials)..."
-            DART_DEFINES="--dart-define=APP_ENV=production --dart-define=API_BASE_URL=https://dev.twseelstation.com/api/v1/ --dart-define=API_DOMAIN=https://dev.twseelstation.com --dart-define=RECEIPT_BASE_URL=https://dev.twseelstation.com/api/v1/download-receipt/ --dart-define=MOYASAR_KEY=pk_live_sxftSCxyNuiNxdW2T3jU4AJ2WTi4j2aaYtv9rgue --dart-define=PAYTABS_PROFILE_ID=107991 --dart-define=PAYTABS_CLIENT_KEY=CQKM99-DD7P6H-P9PVKN-PKBPKP --dart-define=PAYTABS_SERVER_KEY=SNJNHJM2M2-JH9Z9WKM6Z-G269DKMJZG"
+            echo "🚀 Compiling for PRODUCTION environment using GitHub Secrets..."
+            DART_DEFINES="--dart-define=APP_ENV=production --dart-define=API_BASE_URL=$API_URL_PROD --dart-define=API_DOMAIN=$API_DOM_PROD --dart-define=RECEIPT_BASE_URL=$RECEIPT_URL_PROD --dart-define=MOYASAR_KEY=$MOYASAR_PROD --dart-define=PAYTABS_PROFILE_ID=$PAYTABS_PID_PROD --dart-define=PAYTABS_CLIENT_KEY=$PAYTABS_CKEY_PROD --dart-define=PAYTABS_SERVER_KEY=$PAYTABS_SKEY_PROD"
           fi
           flutter build appbundle --release $DART_DEFINES
 
@@ -192,14 +206,28 @@ jobs:
       - name: Build iOS IPA
         env:
           TARGET_ENV: ${{ inputs.target_env }}
+          API_URL_TEST: ${{ secrets.API_BASE_URL_TEST }}
+          API_URL_PROD: ${{ secrets.API_BASE_URL_PROD }}
+          API_DOM_TEST: ${{ secrets.API_DOMAIN_TEST }}
+          API_DOM_PROD: ${{ secrets.API_DOMAIN_PROD }}
+          RECEIPT_URL_TEST: ${{ secrets.RECEIPT_BASE_URL_TEST }}
+          RECEIPT_URL_PROD: ${{ secrets.RECEIPT_BASE_URL_PROD }}
+          MOYASAR_TEST: ${{ secrets.MOYASAR_KEY_TEST }}
+          MOYASAR_PROD: ${{ secrets.MOYASAR_KEY_PROD }}
+          PAYTABS_PID_TEST: ${{ secrets.PAYTABS_PROFILE_ID_TEST }}
+          PAYTABS_PID_PROD: ${{ secrets.PAYTABS_PROFILE_ID_PROD }}
+          PAYTABS_CKEY_TEST: ${{ secrets.PAYTABS_CLIENT_KEY_TEST }}
+          PAYTABS_CKEY_PROD: ${{ secrets.PAYTABS_CLIENT_KEY_PROD }}
+          PAYTABS_SKEY_TEST: ${{ secrets.PAYTABS_SERVER_KEY_TEST }}
+          PAYTABS_SKEY_PROD: ${{ secrets.PAYTABS_SERVER_KEY_PROD }}
         run: |
           cd app-source
           if [ "$TARGET_ENV" = "test" ]; then
-            echo "🔧 Compiling for TEST environment (test.twseelstation.com + Sandbox credentials)..."
-            DART_DEFINES="--dart-define=APP_ENV=test --dart-define=API_BASE_URL=https://test.twseelstation.com/api/v1/ --dart-define=API_DOMAIN=https://test.twseelstation.com --dart-define=RECEIPT_BASE_URL=https://test.twseelstation.com/api/v1/download-receipt/ --dart-define=MOYASAR_KEY=pk_test_q5NLbRofFc2WhoaLZya6ZqEzruNX2iU5TLUDnhCy --dart-define=PAYTABS_PROFILE_ID=107725 --dart-define=PAYTABS_CLIENT_KEY=CPKM99-DDTN6H-PHG6QB-HR299P --dart-define=PAYTABS_SERVER_KEY=SGJNHJM26T-JH9H6JNLKB-MJ6GMLHZMG"
+            echo "🔧 Compiling for TEST environment using GitHub Secrets..."
+            DART_DEFINES="--dart-define=APP_ENV=test --dart-define=API_BASE_URL=$API_URL_TEST --dart-define=API_DOMAIN=$API_DOM_TEST --dart-define=RECEIPT_BASE_URL=$RECEIPT_URL_TEST --dart-define=MOYASAR_KEY=$MOYASAR_TEST --dart-define=PAYTABS_PROFILE_ID=$PAYTABS_PID_TEST --dart-define=PAYTABS_CLIENT_KEY=$PAYTABS_CKEY_TEST --dart-define=PAYTABS_SERVER_KEY=$PAYTABS_SKEY_TEST"
           else
-            echo "🚀 Compiling for PRODUCTION environment (dev.twseelstation.com + Live credentials)..."
-            DART_DEFINES="--dart-define=APP_ENV=production --dart-define=API_BASE_URL=https://dev.twseelstation.com/api/v1/ --dart-define=API_DOMAIN=https://dev.twseelstation.com --dart-define=RECEIPT_BASE_URL=https://dev.twseelstation.com/api/v1/download-receipt/ --dart-define=MOYASAR_KEY=pk_live_sxftSCxyNuiNxdW2T3jU4AJ2WTi4j2aaYtv9rgue --dart-define=PAYTABS_PROFILE_ID=107991 --dart-define=PAYTABS_CLIENT_KEY=CQKM99-DD7P6H-P9PVKN-PKBPKP --dart-define=PAYTABS_SERVER_KEY=SNJNHJM2M2-JH9Z9WKM6Z-G269DKMJZG"
+            echo "🚀 Compiling for PRODUCTION environment using GitHub Secrets..."
+            DART_DEFINES="--dart-define=APP_ENV=production --dart-define=API_BASE_URL=$API_URL_PROD --dart-define=API_DOMAIN=$API_DOM_PROD --dart-define=RECEIPT_BASE_URL=$RECEIPT_URL_PROD --dart-define=MOYASAR_KEY=$MOYASAR_PROD --dart-define=PAYTABS_PROFILE_ID=$PAYTABS_PID_PROD --dart-define=PAYTABS_CLIENT_KEY=$PAYTABS_CKEY_PROD --dart-define=PAYTABS_SERVER_KEY=$PAYTABS_SKEY_PROD"
           fi
           flutter build ipa --release --no-codesign $DART_DEFINES
 
