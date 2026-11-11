@@ -62,23 +62,27 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Send Alert
-        if: secrets.TELEGRAM_BOT_TOKEN != '' && secrets.TELEGRAM_CHAT_ID != ''
+        env:
+          TG_BOT: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TG_CHAT: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          APP="${{ inputs.app_name }}"
-          PLATFORM="${{ inputs.target_platform }}"
-          REF="${{ github.ref_name }}"
-          ACTOR="${{ github.actor }}"
-          
-          TEXT="🚀 *[${APP}] Store Build Pipeline Triggered*%0A%0A"
-          TEXT+="• *App:* \`twseel-station/${APP}\`%0A"
-          TEXT+="• *Target:* \`${PLATFORM}\`%0A"
-          TEXT+="• *Ref:* \`${REF}\` by *${ACTOR}*%0A"
-          TEXT+="• *Runner:* GitHub Hosted Free Fleet%0A"
-          
-          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
-            -d "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}" \
-            -d "text=${TEXT}" \
-            -d "parse_mode=Markdown" > /dev/null || true
+          if [ -n "$TG_BOT" ] && [ -n "$TG_CHAT" ]; then
+            APP="${{ inputs.app_name }}"
+            PLATFORM="${{ inputs.target_platform }}"
+            REF="${{ github.ref_name }}"
+            ACTOR="${{ github.actor }}"
+            
+            TEXT="🚀 *[${APP}] Store Build Pipeline Triggered*%0A%0A"
+            TEXT+="• *App:* \`twseel-station/${APP}\`%0A"
+            TEXT+="• *Target:* \`${PLATFORM}\`%0A"
+            TEXT+="• *Ref:* \`${REF}\` by *${ACTOR}*%0A"
+            TEXT+="• *Runner:* GitHub Hosted Free Fleet%0A"
+            
+            curl -s -X POST "https://api.telegram.org/bot${TG_BOT}/sendMessage" \
+              -d "chat_id=${TG_CHAT}" \
+              -d "text=${TEXT}" \
+              -d "parse_mode=Markdown" > /dev/null || true
+          fi
 
   build-android:
     name: Build & Release Android Bundle (.aab)
@@ -102,11 +106,15 @@ jobs:
           cache: true
 
       - name: Restore Keystore & Secrets
-        if: secrets.ANDROID_KEYSTORE_BASE64 != ''
+        env:
+          KS_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KP_VAL: ${{ secrets.ANDROID_KEY_PROPERTIES }}
         run: |
-          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > android/app/upload-keystore.jks
-          if [ -n "${{ secrets.ANDROID_KEY_PROPERTIES }}" ]; then
-            printf "%s\n" "${{ secrets.ANDROID_KEY_PROPERTIES }}" > android/key.properties
+          if [ -n "$KS_B64" ]; then
+            echo "$KS_B64" | base64 -d > android/app/upload-keystore.jks
+          fi
+          if [ -n "$KP_VAL" ]; then
+            printf "%s\n" "$KP_VAL" > android/key.properties
           fi
 
       - name: Install Dependencies
@@ -115,12 +123,58 @@ jobs:
       - name: Build Android App Bundle (AAB)
         run: flutter build appbundle --release
 
-      - name: Upload to Google Play (Internal / Production)
-        if: secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON != ''
+      - name: Upload to Google Play (Internal Testing)
+        env:
+          PLAY_JSON: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
         run: |
-          echo "Preparing Google Play distribution..."
-          echo "${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}" > play-service-account.json
-          echo "AAB build completed successfully at build/app/outputs/bundle/release/app-release.aab"
+          if [ -n "$PLAY_JSON" ]; then
+            echo "Preparing Google Play distribution..."
+            echo "$PLAY_JSON" > /tmp/play-service-account.json
+            echo "AAB build completed successfully at build/app/outputs/bundle/release/app-release.aab"
+            
+            pip3 install google-api-python-client oauth2client
+            python3 -c "
+import json
+from oauth2client.service_account import ServiceAccountCredentials
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaFileUpload
+
+scope = ['https://www.googleapis.com/auth/androidpublisher']
+credentials = ServiceAccountCredentials.from_json_keyfile_name('/tmp/play-service-account.json', scope)
+service = build('androidpublisher', 'v3', credentials=credentials)
+
+package_name = 'com.mada.twseel_station_client'
+app_bundle_path = 'build/app/outputs/bundle/release/app-release.aab'
+
+edit = service.edits().insert(packageName=package_name, body={}).execute()
+edit_id = edit['id']
+
+bundle_response = service.edits().bundles().upload(
+    packageName=package_name,
+    editId=edit_id,
+    media_body=MediaFileUpload(app_bundle_path, mimetype='application/octet-stream')
+).execute()
+
+version_code = bundle_response['versionCode']
+print(f'Uploaded bundle with version code: {version_code}')
+
+track_response = service.edits().tracks().update(
+    packageName=package_name,
+    editId=edit_id,
+    track='internal',
+    body={
+        'releases': [{
+            'versionCodes': [str(version_code)],
+            'status': 'completed',
+            'name': '1.0.15 (Automated Builder Release)'
+        }]
+    }
+).execute()
+
+commit = service.edits().commit(packageName=package_name, editId=edit_id).execute()
+print(f'Release to internal testing committed successfully: {commit}')
+"
+          fi
 
   build-ios:
     name: Build & Release iOS Package (.ipa)
@@ -144,10 +198,14 @@ jobs:
         run: flutter build ipa --release --no-codesign
 
       - name: Prepare Apple Auth Key
-        if: secrets.APPLE_APP_STORE_KEY_P8 != ''
+        env:
+          P8_VAL: ${{ secrets.APPLE_APP_STORE_KEY_P8 }}
+          K_ID: ${{ secrets.APPLE_KEY_ID }}
         run: |
-          mkdir -p ~/.appstoreconnect/private_keys
-          echo "${{ secrets.APPLE_APP_STORE_KEY_P8 }}" > ~/.appstoreconnect/private_keys/AuthKey_${{ secrets.APPLE_KEY_ID }}.p8
+          if [ -n "$P8_VAL" ]; then
+            mkdir -p ~/.appstoreconnect/private_keys
+            echo "$P8_VAL" > ~/.appstoreconnect/private_keys/AuthKey_${K_ID}.p8
+          fi
 
   notify-finish:
     name: Notify Telegram Finish
@@ -156,21 +214,25 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Send Completion Alert
-        if: secrets.TELEGRAM_BOT_TOKEN != '' && secrets.TELEGRAM_CHAT_ID != ''
+        env:
+          TG_BOT: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TG_CHAT: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          APP="${{ inputs.app_name }}"
-          PLATFORM="${{ inputs.target_platform }}"
-          
-          ANDROID_STATUS="${{ needs.build-android.result }}"
-          IOS_STATUS="${{ needs.build-ios.result }}"
-          
-          TEXT="🏁 *[${APP}] Store Pipeline Finished*%0A%0A"
-          TEXT+="• *Android Build:* ${ANDROID_STATUS}%0A"
-          TEXT+="• *iOS Build:* ${IOS_STATUS}%0A"
-          TEXT+="• *Target:* \`${PLATFORM}\`%0A"
-          TEXT+="• *Run Details:* [View Actions Run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
-          
-          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
-            -d "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}" \
-            -d "text=${TEXT}" \
-            -d "parse_mode=Markdown" > /dev/null || true
+          if [ -n "$TG_BOT" ] && [ -n "$TG_CHAT" ]; then
+            APP="${{ inputs.app_name }}"
+            PLATFORM="${{ inputs.target_platform }}"
+            
+            ANDROID_STATUS="${{ needs.build-android.result }}"
+            IOS_STATUS="${{ needs.build-ios.result }}"
+            
+            TEXT="🏁 *[${APP}] Store Pipeline Finished*%0A%0A"
+            TEXT+="• *Android Build:* ${ANDROID_STATUS}%0A"
+            TEXT+="• *iOS Build:* ${IOS_STATUS}%0A"
+            TEXT+="• *Target:* \`${PLATFORM}\`%0A"
+            TEXT+="• *Run Details:* [View Actions Run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+            
+            curl -s -X POST "https://api.telegram.org/bot${TG_BOT}/sendMessage" \
+              -d "chat_id=${TG_CHAT}" \
+              -d "text=${TEXT}" \
+              -d "parse_mode=Markdown" > /dev/null || true
+          fi
