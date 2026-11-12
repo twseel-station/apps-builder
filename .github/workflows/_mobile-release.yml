@@ -67,6 +67,7 @@ jobs:
       code: ${{ steps.ver.outputs.code }}
       release_url: ${{ steps.release.outputs.url }}
       play: ${{ steps.play.outcome }}
+      has_apk: ${{ steps.release.outputs.has_apk }}
     steps:
       - name: Builder scripts
         uses: actions/checkout@v4
@@ -179,6 +180,36 @@ jobs:
             --notes "$MSG"
           echo "url=$(gh release view "$tag" --repo "$repo" --json url -q .url)" >> "$GITHUB_OUTPUT"
 
+          # Prepare dev APK for Telegram chat (< 50MB)
+          if [ "${{ inputs.env }}" != "production" ]; then
+            mkdir -p "$RUNNER_TEMP/tg-apk"
+            tg_apk="$RUNNER_TEMP/tg-apk/$apk"
+            cp "$apk" "$tg_apk"
+            size=$(stat -c%s "$tg_apk" 2>/dev/null || echo 0)
+            max_bytes=$((50 * 1024 * 1024))
+            if [ "$size" -gt "$max_bytes" ]; then
+              arm64_apk="$RUNNER_TEMP/tg-apk/${apk%.apk}-arm64.apk"
+              cp "$tg_apk" "$arm64_apk"
+              zip -d "$arm64_apk" "lib/armeabi-v7a/*" "lib/x86_64/*" 2>/dev/null || true
+              arm64_size=$(stat -c%s "$arm64_apk" 2>/dev/null || echo 0)
+              if [ "$arm64_size" -gt 0 ] && [ "$arm64_size" -le "$max_bytes" ]; then
+                rm -f "$tg_apk"
+              else
+                zip -1 "$RUNNER_TEMP/tg-apk/${apk}.zip" "$arm64_apk"
+                rm -f "$tg_apk" "$arm64_apk"
+              fi
+            fi
+            echo "has_apk=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Archive Dev APK for Telegram
+        if: inputs.env != 'production' && steps.release.outputs.has_apk == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: dev-apk
+          path: ${{ runner.temp }}/tg-apk/
+          retention-days: 1
+
       - name: Upload to Google Play
         id: play
         if: inputs.on_play && inputs.upload
@@ -268,6 +299,21 @@ jobs:
         with:
           sparse-checkout: .github/actions
 
+      - name: Download Dev APK
+        if: inputs.env != 'production' && needs.android.outputs.has_apk == 'true' && needs.android.result == 'success'
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: dev-apk
+          path: dev-apk
+
+      - name: Locate Dev APK
+        id: tg_doc
+        if: inputs.env != 'production'
+        run: |
+          doc=$(find dev-apk -type f 2>/dev/null | head -1 || echo "")
+          echo "doc=$doc" >> "$GITHUB_OUTPUT"
+
       - name: Summary
         id: sum
         env:
@@ -311,6 +357,7 @@ jobs:
           env: ${{ inputs.env }}
           stage: ${{ steps.sum.outputs.stage }}
           details: ${{ steps.sum.outputs.details }}
+          document: ${{ steps.tg_doc.outputs.doc }}
           links: |
             التشغيل|${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
             ${{ needs.android.outputs.release_url && format('الـ APK|{0}', needs.android.outputs.release_url) || '' }}

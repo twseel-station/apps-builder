@@ -36,6 +36,10 @@ inputs:
     description: Lines of label and url separated by a pipe
     required: false
     default: ""
+  document:
+    description: Path to file to send as document (e.g. apk)
+    required: false
+    default: ""
 
 runs:
   using: composite
@@ -51,4 +55,5 @@ runs:
         STAGE: ${{ inputs.stage }}
         DETAILS: ${{ inputs.details }}
         LINKS: ${{ inputs.links }}
+        DOCUMENT: ${{ inputs.document }}
       run: python3 "$GITHUB_ACTION_PATH/notify.py"

@@ -20,6 +20,7 @@ import os
 import random
 import urllib.parse
 import urllib.request
+import uuid
 
 ENV_LABEL = {
     "test": "التست 🧪",
@@ -109,6 +110,48 @@ def build_message():
     return "\n".join(out)
 
 
+def send_document(bot, chat, file_path, caption=""):
+    boundary = f"----WebKitFormBoundary{uuid.uuid4().hex}"
+    filename = os.path.basename(file_path)
+
+    with open(file_path, "rb") as f:
+        file_bytes = f.read()
+
+    body = bytearray()
+
+    def add_field(name, value):
+        body.extend(
+            f"--{boundary}\r\nContent-Disposition: form-data; name=\"{name}\"\r\n\r\n{value}\r\n".encode("utf-8")
+        )
+
+    add_field("chat_id", chat)
+    if caption:
+        cap = caption if len(caption) <= 1024 else caption[:1020] + "..."
+        add_field("caption", cap)
+        add_field("parse_mode", "HTML")
+
+    mime_type = "application/vnd.android.package-archive" if filename.endswith(".apk") else "application/zip"
+    body.extend(
+        f"--{boundary}\r\nContent-Disposition: form-data; name=\"document\"; filename=\"{filename}\"\r\nContent-Type: {mime_type}\r\n\r\n".encode(
+            "utf-8"
+        )
+    )
+    body.extend(file_bytes)
+    body.extend(f"\r\n--{boundary}--\r\n".encode("utf-8"))
+
+    req = urllib.request.Request(
+        f"https://api.telegram.org/bot{bot}/sendDocument",
+        data=bytes(body),
+        headers={
+            "Content-Type": f"multipart/form-data; boundary={boundary}",
+            "User-Agent": "AntigravityTelegramBot/1.0",
+        },
+    )
+    req.add_header("Content-Length", str(len(body)))
+    with urllib.request.urlopen(req, timeout=180) as resp:
+        return resp.read()
+
+
 def main():
     bot, chat = os.environ.get("TG_BOT", ""), os.environ.get("TG_CHAT", "")
     text = build_message()
@@ -116,20 +159,35 @@ def main():
     if not (bot and chat):
         print("Telegram credentials not set, skipping send.")
         return
-    data = urllib.parse.urlencode(
-        {
-            "chat_id": chat,
-            "text": text,
-            "parse_mode": "HTML",
-            "disable_web_page_preview": "true",
-        }
-    ).encode()
-    try:
-        urllib.request.urlopen(
-            f"https://api.telegram.org/bot{bot}/sendMessage", data=data, timeout=15
-        ).read()
-    except Exception as exc:  # a notification must never fail the pipeline
-        print(f"::warning::Telegram send failed: {exc}")
+
+    doc_path = os.environ.get("DOCUMENT", "").strip()
+    sent_doc = False
+    if doc_path and os.path.isfile(doc_path):
+        size = os.path.getsize(doc_path)
+        print(f"Sending document to Telegram: {doc_path} ({size} bytes)")
+        try:
+            send_document(bot, chat, doc_path, caption=text)
+            sent_doc = True
+            print("Telegram document sent successfully.")
+        except Exception as exc:
+            print(f"::warning::Telegram sendDocument failed: {exc}, falling back to sendMessage")
+
+    if not sent_doc:
+        data = urllib.parse.urlencode(
+            {
+                "chat_id": chat,
+                "text": text,
+                "parse_mode": "HTML",
+                "disable_web_page_preview": "true",
+            }
+        ).encode()
+        try:
+            urllib.request.urlopen(
+                f"https://api.telegram.org/bot{bot}/sendMessage", data=data, timeout=15
+            ).read()
+            print("Telegram message sent successfully.")
+        except Exception as exc:  # a notification must never fail the pipeline
+            print(f"::warning::Telegram send failed: {exc}")
 
 
 if __name__ == "__main__":
