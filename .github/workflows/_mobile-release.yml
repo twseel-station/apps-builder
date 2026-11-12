@@ -172,7 +172,7 @@ jobs:
       - name: Build APK
         working-directory: app
         run: |
-          flutter build apk --release \
+          flutter build apk --release --split-per-abi \
             --dart-define-from-file="$RUNNER_TEMP/defines.json" \
             --build-name="${{ steps.ver.outputs.name }}" --build-number="${{ steps.ver.outputs.code }}"
 
@@ -195,12 +195,13 @@ jobs:
           repo="twseel-station/${{ inputs.app }}"
           tag="v${NAME}-${CODE}-${{ inputs.env }}"
           apk="${{ inputs.app }}-${NAME}+${CODE}-${{ inputs.env }}.apk"
+          apk_v7="${{ inputs.app }}-${NAME}+${CODE}-${{ inputs.env }}-armv7.apk"
 
-          # Universal signed release APK works on all devices without ABI incompatibility
-          if [ -f "app/build/app/outputs/flutter-apk/app-release.apk" ]; then
-            cp app/build/app/outputs/flutter-apk/app-release.apk "$apk"
-          elif [ -f "app/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk" ]; then
+          # Use official arm64-v8a APK (~19MB) to strictly stay below Telegram's 50MB limit
+          if [ -f "app/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk" ]; then
             cp app/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk "$apk"
+          elif [ -f "app/build/app/outputs/flutter-apk/app-release.apk" ]; then
+            cp app/build/app/outputs/flutter-apk/app-release.apk "$apk"
           fi
 
           # Verify APK signature before release
@@ -211,6 +212,10 @@ jobs:
           fi
 
           release_files=("$apk")
+          if [ -f "app/build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk" ]; then
+            cp app/build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk "$apk_v7"
+            release_files+=("$apk_v7")
+          fi
 
           gh release delete "$tag" --repo "$repo" --cleanup-tag --yes 2>/dev/null || true
           gh release create "$tag" "${release_files[@]}" --repo "$repo" --target "${{ steps.src.outputs.sha }}" \
@@ -219,18 +224,18 @@ jobs:
             --notes "$MSG"
           echo "url=$(gh release view "$tag" --repo "$repo" --json url -q .url)" >> "$GITHUB_OUTPUT"
 
-          # Send pure, untouched .apk directly to Telegram (< 50MB, no zip, valid signature)
-          if [ "${{ inputs.env }}" != "production" ] && [ -f "$apk" ]; then
+          # Always send pure .apk directly to Telegram (< 50MB) even on production / Google Play releases
+          if [ -f "$apk" ]; then
             mkdir -p "$RUNNER_TEMP/tg-apk"
             cp "$apk" "$RUNNER_TEMP/tg-apk/$apk"
             echo "has_apk=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Archive Dev APK for Telegram
-        if: inputs.env != 'production' && steps.release.outputs.has_apk == 'true'
+      - name: Archive APK for Telegram
+        if: steps.release.outputs.has_apk == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: dev-apk
+          name: app-apk
           path: ${{ runner.temp }}/tg-apk/
           retention-days: 1
 
@@ -323,19 +328,18 @@ jobs:
         with:
           sparse-checkout: .github/actions
 
-      - name: Download Dev APK
-        if: inputs.env != 'production' && needs.android.outputs.has_apk == 'true' && needs.android.result == 'success'
+      - name: Download APK
+        if: needs.android.outputs.has_apk == 'true' && needs.android.result == 'success'
         continue-on-error: true
         uses: actions/download-artifact@v4
         with:
-          name: dev-apk
-          path: dev-apk
+          name: app-apk
+          path: app-apk
 
-      - name: Locate Dev APK
+      - name: Locate APK
         id: tg_doc
-        if: inputs.env != 'production'
         run: |
-          doc=$(find dev-apk -type f 2>/dev/null | head -1 || echo "")
+          doc=$(find app-apk -type f 2>/dev/null | head -1 || echo "")
           echo "doc=$doc" >> "$GITHUB_OUTPUT"
 
       - name: Summary
