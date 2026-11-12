@@ -1,0 +1,48 @@
+name: "[restaurant-app] Build & Release"
+run-name: "[restaurant-app] ${{ inputs.env }} · ${{ inputs.platform }} · ${{ inputs.ref || 'auto' }}"
+
+on:
+  workflow_dispatch:
+    inputs:
+      env:
+        description: Environment (test = develop servers, production = live)
+        type: choice
+        options: [test, production]
+        default: test
+      platform:
+        type: choice
+        options: [android, ios, both]
+        default: android
+      ref:
+        description: Branch or commit of restaurant-app (empty = develop for test, main for production)
+        type: string
+        required: false
+      upload:
+        description: Push to the stores (not on any store yet, APK release only)
+        type: boolean
+        default: true
+
+concurrency:
+  group: restaurant-app-${{ inputs.env }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    uses: ./.github/workflows/_mobile-release.yml
+    secrets: inherit
+    with:
+      app: restaurant-app
+      secret_prefix: RESTAURANT_APP
+      android_package: com.twseel.station.restaurant.twseel_station_restaurant
+      on_play: false
+      on_app_store: false
+      env: ${{ inputs.env }}
+      platform: ${{ inputs.platform }}
+      ref: ${{ inputs.ref || (inputs.env == 'production' && 'main' || 'develop') }}
+      upload: ${{ inputs.upload }}
+      # <variable> -> secrets.RESTAURANT_APP_<variable>_<TEST|PROD>
+      defines: |
+        API_DOMAIN

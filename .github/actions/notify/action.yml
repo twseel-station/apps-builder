@@ -1,0 +1,54 @@
+name: Notify
+description: One merged Telegram message in Saudi dialect (shared by every repo)
+
+inputs:
+  bot-token:
+    description: Telegram bot token
+    required: false
+    default: ""
+  chat-id:
+    description: Telegram chat id
+    required: false
+    default: ""
+  kind:
+    description: app | deploy | check
+    required: false
+    default: app
+  status:
+    description: success | failure | cancelled
+    required: true
+  title:
+    description: App or service name
+    required: true
+  env:
+    description: test | production | staging
+    required: false
+    default: ""
+  stage:
+    description: Where it failed (failure only)
+    required: false
+    default: ""
+  details:
+    description: Lines of key and value separated by a colon
+    required: false
+    default: ""
+  links:
+    description: Lines of label and url separated by a pipe
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        TG_BOT: ${{ inputs.bot-token }}
+        TG_CHAT: ${{ inputs.chat-id }}
+        KIND: ${{ inputs.kind }}
+        STATUS: ${{ inputs.status }}
+        TITLE: ${{ inputs.title }}
+        ENV: ${{ inputs.env }}
+        STAGE: ${{ inputs.stage }}
+        DETAILS: ${{ inputs.details }}
+        LINKS: ${{ inputs.links }}
+      run: python3 "$GITHUB_ACTION_PATH/notify.py"

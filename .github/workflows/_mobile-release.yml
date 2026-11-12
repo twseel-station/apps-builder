@@ -1,0 +1,316 @@
+name: Mobile Release (reusable)
+
+# Called by the per-app workflows (client-app.yml, restaurant-app.yml, delivery-app.yml).
+# Each caller only declares its own package ids and the variable names it needs;
+# the values are resolved from secrets named <SECRET_PREFIX>_<VARIABLE>_<TEST|PROD>.
+
+on:
+  workflow_call:
+    inputs:
+      app:
+        description: Private repo name, e.g. client-app
+        type: string
+        required: true
+      secret_prefix:
+        description: Secret prefix, e.g. CLIENT_APP
+        type: string
+        required: true
+      defines:
+        description: Variable names to inject with --dart-define (one per line)
+        type: string
+        required: true
+      android_package:
+        type: string
+        required: true
+      env:
+        type: string
+        default: test
+      platform:
+        type: string
+        default: android
+      ref:
+        type: string
+        default: develop
+      on_play:
+        description: App already exists on Google Play
+        type: boolean
+        default: false
+      on_app_store:
+        description: App already exists on App Store Connect
+        type: boolean
+        default: false
+      upload:
+        description: Push to the stores (when the app exists there)
+        type: boolean
+        default: true
+      flutter_version:
+        type: string
+        default: "3.41.9"
+
+permissions:
+  contents: read
+
+env:
+  SUFFIX: ${{ inputs.env == 'production' && 'PROD' || 'TEST' }}
+  PLAY_TRACK: ${{ inputs.env == 'production' && 'production' || 'internal' }}
+  # production goes up as a draft: someone presses "start rollout" in Play Console
+  PLAY_STATUS: ${{ inputs.env == 'production' && 'draft' || 'completed' }}
+
+jobs:
+  android:
+    name: Android
+    if: inputs.platform == 'android' || inputs.platform == 'both'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    outputs:
+      name: ${{ steps.ver.outputs.name }}
+      code: ${{ steps.ver.outputs.code }}
+      release_url: ${{ steps.release.outputs.url }}
+      play: ${{ steps.play.outcome }}
+    steps:
+      - name: Builder scripts
+        uses: actions/checkout@v4
+        with:
+          path: builder
+          sparse-checkout: scripts
+
+      - name: App source (private repo)
+        uses: actions/checkout@v4
+        with:
+          repository: twseel-station/${{ inputs.app }}
+          token: ${{ secrets.GH_PAT }}
+          ref: ${{ inputs.ref }}
+          path: app
+
+      - id: src
+        run: |
+          echo "sha=$(git -C app rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "msg=$(git -C app log -1 --format=%s)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+          cache-dependency-path: |
+            app/android/**/*.gradle*
+            app/android/gradle/wrapper/gradle-wrapper.properties
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ inputs.flutter_version }}
+          channel: stable
+          cache: true
+          pub-cache-key: flutter-pub-:os:-:channel:-:version:-${{ hashFiles('app/pubspec.lock') }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: builder/scripts/requirements.txt
+
+      - run: pip install -r builder/scripts/requirements.txt
+
+      - name: Signing key
+        env:
+          KS_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KP_VAL: ${{ secrets.ANDROID_KEY_PROPERTIES }}
+        run: |
+          [ -n "$KS_B64" ] && echo "$KS_B64" | base64 -d > app/android/app/upload-keystore.jks
+          [ -n "$KP_VAL" ] && printf '%s\n' "$KP_VAL" > app/android/key.properties
+          exit 0
+
+      - name: Version (never reuse a Play version code)
+        id: ver
+        env:
+          PLAY_JSON: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
+        run: |
+          python3 builder/scripts/mobile_ci.py version --pubspec app/pubspec.yaml \
+            ${{ inputs.on_play && format('--play-package {0}', inputs.android_package) || '' }}
+
+      - name: Variables from secrets
+        env:
+          ALL_SECRETS: ${{ toJSON(secrets) }}
+          PREFIX: ${{ inputs.secret_prefix }}
+          KEYS: ${{ inputs.defines }}
+          APP_ENV: ${{ inputs.env }}
+        run: python3 builder/scripts/mobile_ci.py defines --out "$RUNNER_TEMP/defines.json"
+
+      - name: Dependencies
+        working-directory: app
+        run: flutter pub get
+
+      - name: Analyze (informational)
+        working-directory: app
+        continue-on-error: true
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings
+
+      - name: Build APK
+        working-directory: app
+        run: |
+          flutter build apk --release \
+            --dart-define-from-file="$RUNNER_TEMP/defines.json" \
+            --build-name="${{ steps.ver.outputs.name }}" --build-number="${{ steps.ver.outputs.code }}"
+
+      - name: Build AAB
+        if: inputs.on_play && inputs.upload
+        working-directory: app
+        run: |
+          flutter build appbundle --release \
+            --dart-define-from-file="$RUNNER_TEMP/defines.json" \
+            --build-name="${{ steps.ver.outputs.name }}" --build-number="${{ steps.ver.outputs.code }}"
+
+      - name: APK release (private repo)
+        id: release
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          NAME: ${{ steps.ver.outputs.name }}
+          CODE: ${{ steps.ver.outputs.code }}
+          MSG: ${{ steps.src.outputs.msg }}
+        run: |
+          repo="twseel-station/${{ inputs.app }}"
+          tag="v${NAME}-${CODE}-${{ inputs.env }}"
+          apk="${{ inputs.app }}-${NAME}+${CODE}-${{ inputs.env }}.apk"
+          cp app/build/app/outputs/flutter-apk/app-release.apk "$apk"
+          gh release delete "$tag" --repo "$repo" --cleanup-tag --yes 2>/dev/null || true
+          gh release create "$tag" "$apk" --repo "$repo" --target "${{ steps.src.outputs.sha }}" \
+            ${{ inputs.env != 'production' && '--prerelease' || '' }} \
+            --title "${{ inputs.app }} ${NAME} (${CODE}) · ${{ inputs.env }}" \
+            --notes "$MSG"
+          echo "url=$(gh release view "$tag" --repo "$repo" --json url -q .url)" >> "$GITHUB_OUTPUT"
+
+      - name: Upload to Google Play
+        id: play
+        if: inputs.on_play && inputs.upload
+        env:
+          PLAY_JSON: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
+        run: |
+          python3 builder/scripts/mobile_ci.py play-upload \
+            --package "${{ inputs.android_package }}" \
+            --bundle app/build/app/outputs/bundle/release/app-release.aab \
+            --track "$PLAY_TRACK" --status "$PLAY_STATUS" \
+            --name "${{ steps.ver.outputs.name }} (${{ steps.ver.outputs.code }}) ${{ inputs.env }}"
+
+  ios:
+    name: iOS
+    if: (inputs.platform == 'ios' || inputs.platform == 'both') && inputs.on_app_store
+    runs-on: macos-latest
+    timeout-minutes: 60
+    outputs:
+      uploaded: ${{ steps.tf.outputs.uploaded }}
+    steps:
+      - name: Builder scripts
+        uses: actions/checkout@v4
+        with:
+          path: builder
+          sparse-checkout: scripts
+
+      - name: App source (private repo)
+        uses: actions/checkout@v4
+        with:
+          repository: twseel-station/${{ inputs.app }}
+          token: ${{ secrets.GH_PAT }}
+          ref: ${{ inputs.ref }}
+          path: app
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ inputs.flutter_version }}
+          channel: stable
+          cache: true
+          pub-cache-key: flutter-pub-:os:-:channel:-:version:-${{ hashFiles('app/pubspec.lock') }}
+
+      - uses: actions/cache@v4
+        with:
+          path: app/ios/Pods
+          key: pods-${{ inputs.app }}-${{ hashFiles('app/ios/Podfile.lock') }}
+          restore-keys: pods-${{ inputs.app }}-
+
+      - name: Version
+        id: ver
+        run: python3 builder/scripts/mobile_ci.py version --pubspec app/pubspec.yaml
+
+      - name: Variables from secrets
+        env:
+          ALL_SECRETS: ${{ toJSON(secrets) }}
+          PREFIX: ${{ inputs.secret_prefix }}
+          KEYS: ${{ inputs.defines }}
+          APP_ENV: ${{ inputs.env }}
+        run: python3 builder/scripts/mobile_ci.py defines --out "$RUNNER_TEMP/defines.json"
+
+      - name: Build IPA
+        working-directory: app
+        run: |
+          flutter pub get
+          flutter build ipa --release --no-codesign \
+            --dart-define-from-file="$RUNNER_TEMP/defines.json" \
+            --build-name="${{ steps.ver.outputs.name }}" --build-number="${{ steps.ver.outputs.code }}"
+
+      - name: TestFlight
+        id: tf
+        if: inputs.upload
+        env:
+          APPLE_KEY_ID: ${{ secrets.APPLE_KEY_ID }}
+          APPLE_ISSUER_ID: ${{ secrets.APPLE_ISSUER_ID }}
+          APPLE_P8: ${{ secrets.APPLE_APP_STORE_KEY_P8 }}
+        run: |
+          mkdir -p ~/.appstoreconnect/private_keys
+          [ -n "$APPLE_P8" ] && printf '%s\n' "$APPLE_P8" > ~/.appstoreconnect/private_keys/AuthKey_${APPLE_KEY_ID}.p8
+          python3 builder/scripts/mobile_ci.py testflight --ipa-dir app/build/ios/ipa
+
+  notify:
+    name: Notify
+    needs: [android, ios]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/actions
+
+      - name: Summary
+        id: sum
+        env:
+          A: ${{ needs.android.result }}
+          I: ${{ needs.ios.result }}
+          NAME: ${{ needs.android.outputs.name }}
+          CODE: ${{ needs.android.outputs.code }}
+          PLAY: ${{ needs.android.outputs.play }}
+          TF: ${{ needs.ios.outputs.uploaded }}
+        run: |
+          status=success; stage=""; details=""
+          if [ "$A" = failure ] || [ "$I" = failure ]; then
+            status=failure
+            [ "$A" = failure ] && stage="بناء الأندرويد"
+            [ "$I" = failure ] && stage="${stage:+$stage و}بناء الـ iOS"
+          elif [ "$A" = cancelled ] || [ "$I" = cancelled ]; then
+            status=cancelled
+          elif [ "$A" != success ] && [ "$I" != success ]; then
+            status=cancelled
+            details="ملاحظة: التطبيق مو مرفوع على هالمنصة، ما انبنى شي"
+          fi
+          if [ "$A" = success ]; then
+            details+=$'\n'"الإصدار: ${NAME}+${CODE}"
+            if [ "$PLAY" = success ]; then details+=$'\n'"Google Play: ${PLAY_TRACK}"; else details+=$'\n'"Google Play: ما انرفع (APK بس)"; fi
+          fi
+          if [ "$I" = success ]; then
+            if [ "$TF" = true ]; then details+=$'\n'"TestFlight: انرفع"; else details+=$'\n'"TestFlight: ما انرفع (IPA غير موقّع)"; fi
+          fi
+          {
+            echo "status=$status"; echo "stage=$stage"
+            echo "details<<EOF"; echo "المنصة: ${{ inputs.platform }}"; echo "${details#$'\n'}"; echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: ./.github/actions/notify
+        with:
+          bot-token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          chat-id: ${{ secrets.TELEGRAM_CHAT_ID }}
+          kind: app
+          status: ${{ steps.sum.outputs.status }}
+          title: ${{ inputs.app }}
+          env: ${{ inputs.env }}
+          stage: ${{ steps.sum.outputs.stage }}
+          details: ${{ steps.sum.outputs.details }}
+          links: |
+            التشغيل|${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            ${{ needs.android.outputs.release_url && format('الـ APK|{0}', needs.android.outputs.release_url) || '' }}

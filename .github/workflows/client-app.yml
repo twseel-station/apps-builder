@@ -1,0 +1,54 @@
+name: "[client-app] Build & Release"
+run-name: "[client-app] ${{ inputs.env }} · ${{ inputs.platform }} · ${{ inputs.ref || 'auto' }}"
+
+on:
+  workflow_dispatch:
+    inputs:
+      env:
+        description: Environment (test = develop servers, production = live)
+        type: choice
+        options: [test, production]
+        default: test
+      platform:
+        type: choice
+        options: [android, ios, both]
+        default: android
+      ref:
+        description: Branch or commit of client-app (empty = develop for test, main for production)
+        type: string
+        required: false
+      upload:
+        description: Push to the stores (Google Play + TestFlight)
+        type: boolean
+        default: true
+
+concurrency:
+  group: client-app-${{ inputs.env }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    uses: ./.github/workflows/_mobile-release.yml
+    secrets: inherit
+    with:
+      app: client-app
+      secret_prefix: CLIENT_APP
+      android_package: com.mada.twseel_station_client
+      on_play: true
+      on_app_store: true
+      env: ${{ inputs.env }}
+      platform: ${{ inputs.platform }}
+      ref: ${{ inputs.ref || (inputs.env == 'production' && 'main' || 'develop') }}
+      upload: ${{ inputs.upload }}
+      # <variable> -> secrets.CLIENT_APP_<variable>_<TEST|PROD>
+      defines: |
+        API_BASE_URL
+        API_DOMAIN
+        RECEIPT_BASE_URL
+        MOYASAR_KEY
+        PAYTABS_PROFILE_ID
+        PAYTABS_CLIENT_KEY
+        PAYTABS_SERVER_KEY
