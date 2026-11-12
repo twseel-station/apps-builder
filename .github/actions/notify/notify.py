@@ -15,12 +15,14 @@ Env inputs
     LINKS              "label|url" lines, one per line
 """
 
+import datetime
 import html
 import os
 import random
 import urllib.parse
 import urllib.request
 import uuid
+import zoneinfo
 
 ENV_LABEL = {
     "test": "التست 🧪",
@@ -96,9 +98,25 @@ def build_message():
     )
 
     out = [head]
+
+    # Timestamp in Riyadh timezone (UTC+3)
+    try:
+        tz = zoneinfo.ZoneInfo("Asia/Riyadh")
+        now = datetime.datetime.now(tz)
+    except Exception:
+        now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=3)))
+    time_str = now.strftime("%Y-%m-%d · %I:%M %p")
+    time_str = time_str.replace("AM", "صباحاً").replace("PM", "مساءً")
+    out.append(f"⏰ وقت الرفع: <code>{html.escape(time_str)}</code>")
+
     for ln in lines("DETAILS"):
         key, _, val = ln.partition(":")
         out.append(f"• {html.escape(key.strip())}: <code>{html.escape(val.strip())}</code>")
+
+    # Test account reminder in test/dev environment
+    test_account = os.environ.get("TEST_ACCOUNT", "").strip()
+    if test_account and env_key in ("test", "staging", "dev"):
+        out.append(f"🔑 حساب التجربة: <code>{html.escape(test_account)}</code>")
 
     links = []
     for ln in lines("LINKS"):

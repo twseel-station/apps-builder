@@ -40,6 +40,10 @@ inputs:
     description: Path to file to send as document (e.g. apk)
     required: false
     default: ""
+  test-account:
+    description: Test account info to remind in dev/test notifications
+    required: false
+    default: ""
 
 runs:
   using: composite
@@ -56,4 +60,5 @@ runs:
         DETAILS: ${{ inputs.details }}
         LINKS: ${{ inputs.links }}
         DOCUMENT: ${{ inputs.document }}
+        TEST_ACCOUNT: ${{ inputs.test-account }}
       run: python3 "$GITHUB_ACTION_PATH/notify.py"

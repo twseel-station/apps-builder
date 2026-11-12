@@ -347,6 +347,23 @@ jobs:
             echo "details<<EOF"; echo "المنصة: ${{ inputs.platform }}"; echo "${details#$'\n'}"; echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
+      - name: Resolve test account
+        id: test_acc
+        env:
+          ALL_SECRETS: ${{ toJSON(secrets) }}
+          PREFIX: ${{ inputs.secret_prefix }}
+        run: |
+          python3 -c '
+          import json, os
+          secrets = json.loads(os.environ.get("ALL_SECRETS", "{}"))
+          prefix = os.environ.get("PREFIX", "").upper()
+          key = f"{prefix}_TEST_ACCOUNT"
+          acc = secrets.get(key, "")
+          print(f"acc={acc}")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write(f"acc={acc}\n")
+          '
+
       - uses: ./.github/actions/notify
         with:
           bot-token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -358,6 +375,7 @@ jobs:
           stage: ${{ steps.sum.outputs.stage }}
           details: ${{ steps.sum.outputs.details }}
           document: ${{ steps.tg_doc.outputs.doc }}
+          test-account: ${{ steps.test_acc.outputs.acc }}
           links: |
             التشغيل|${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
             ${{ needs.android.outputs.release_url && format('الـ APK|{0}', needs.android.outputs.release_url) || '' }}
