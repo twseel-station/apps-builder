@@ -62,6 +62,8 @@ jobs:
     if: inputs.platform == 'android' || inputs.platform == 'both'
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    env:
+      GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx3584m -Dorg.gradle.daemon=false"
     outputs:
       name: ${{ steps.ver.outputs.name }}
       code: ${{ steps.ver.outputs.code }}
