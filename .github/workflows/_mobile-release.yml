@@ -124,6 +124,26 @@ jobs:
           [ -n "$KP_VAL" ] && printf '%s\n' "$KP_VAL" > app/android/key.properties
           exit 0
 
+      - name: Firebase configuration
+        env:
+          ALL_SECRETS: ${{ toJSON(secrets) }}
+          PREFIX: ${{ inputs.secret_prefix }}
+          APP_ENV: ${{ inputs.env }}
+        run: |
+          python3 -c '
+          import json, os
+          secrets = json.loads(os.environ.get("ALL_SECRETS", "{}"))
+          prefix = os.environ.get("PREFIX", "").upper()
+          env_suffix = "PROD" if os.environ.get("APP_ENV") == "production" else "TEST"
+          gs_json = secrets.get(f"{prefix}_GOOGLE_SERVICES_JSON_{env_suffix}") or secrets.get(f"FIREBASE_GOOGLE_SERVICES_JSON_{env_suffix}")
+          if gs_json:
+              target = "app/android/app/google-services.json"
+              os.makedirs(os.path.dirname(target), exist_ok=True)
+              with open(target, "w") as f:
+                  f.write(gs_json)
+              print(f"Injected {target} from secret FIREBASE_GOOGLE_SERVICES_JSON_{env_suffix}")
+          '
+
       - name: Version (never reuse a Play version code)
         id: ver
         env:
@@ -152,7 +172,7 @@ jobs:
       - name: Build APK
         working-directory: app
         run: |
-          flutter build apk --release --split-per-abi \
+          flutter build apk --release \
             --dart-define-from-file="$RUNNER_TEMP/defines.json" \
             --build-name="${{ steps.ver.outputs.name }}" --build-number="${{ steps.ver.outputs.code }}"
 
@@ -175,13 +195,12 @@ jobs:
           repo="twseel-station/${{ inputs.app }}"
           tag="v${NAME}-${CODE}-${{ inputs.env }}"
           apk="${{ inputs.app }}-${NAME}+${CODE}-${{ inputs.env }}.apk"
-          apk_v7="${{ inputs.app }}-${NAME}+${CODE}-${{ inputs.env }}-armv7.apk"
 
-          # Use official arm64-v8a split APK (~19MB, signed and untouched)
-          if [ -f "app/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk" ]; then
-            cp app/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk "$apk"
-          elif [ -f "app/build/app/outputs/flutter-apk/app-release.apk" ]; then
+          # Universal signed release APK works on all devices without ABI incompatibility
+          if [ -f "app/build/app/outputs/flutter-apk/app-release.apk" ]; then
             cp app/build/app/outputs/flutter-apk/app-release.apk "$apk"
+          elif [ -f "app/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk" ]; then
+            cp app/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk "$apk"
           fi
 
           # Verify APK signature before release
@@ -192,10 +211,6 @@ jobs:
           fi
 
           release_files=("$apk")
-          if [ -f "app/build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk" ]; then
-            cp app/build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk "$apk_v7"
-            release_files+=("$apk_v7")
-          fi
 
           gh release delete "$tag" --repo "$repo" --cleanup-tag --yes 2>/dev/null || true
           gh release create "$tag" "${release_files[@]}" --repo "$repo" --target "${{ steps.src.outputs.sha }}" \
