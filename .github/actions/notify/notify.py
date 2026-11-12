@@ -109,6 +109,11 @@ def build_message():
     time_str = time_str.replace("AM", "صباحاً").replace("PM", "مساءً")
     out.append(f"⏰ وقت الرفع: <code>{html.escape(time_str)}</code>")
 
+    # Duration taken by the action/run
+    duration = os.environ.get("DURATION", "").strip()
+    if duration:
+        out.append(f"⏱️ مدة الأكشن: <code>{html.escape(duration)}</code>")
+
     for ln in lines("DETAILS"):
         key, _, val = ln.partition(":")
         out.append(f"• {html.escape(key.strip())}: <code>{html.escape(val.strip())}</code>")

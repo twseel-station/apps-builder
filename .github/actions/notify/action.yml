@@ -44,6 +44,10 @@ inputs:
     description: Test account info to remind in dev/test notifications
     required: false
     default: ""
+  duration:
+    description: Duration taken by the workflow (e.g. 4m 12s)
+    required: false
+    default: ""
 
 runs:
   using: composite
@@ -61,4 +65,5 @@ runs:
         LINKS: ${{ inputs.links }}
         DOCUMENT: ${{ inputs.document }}
         TEST_ACCOUNT: ${{ inputs.test-account }}
+        DURATION: ${{ inputs.duration }}
       run: python3 "$GITHUB_ACTION_PATH/notify.py"

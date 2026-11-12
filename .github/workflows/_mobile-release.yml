@@ -181,6 +181,9 @@ jobs:
           echo "url=$(gh release view "$tag" --repo "$repo" --json url -q .url)" >> "$GITHUB_OUTPUT"
 
           # Prepare dev APK for Telegram chat (< 50MB)
+          # IMPORTANT: Do NOT strip files from a signed APK with `zip -d` as it invalidates v2/v3 signatures!
+          # Instead, if the universal APK is <= 50MB, send it directly.
+          # If it exceeds 50MB, compress it as a valid .zip for Telegram delivery, preserving its signature.
           if [ "${{ inputs.env }}" != "production" ]; then
             mkdir -p "$RUNNER_TEMP/tg-apk"
             tg_apk="$RUNNER_TEMP/tg-apk/$apk"
@@ -188,16 +191,8 @@ jobs:
             size=$(stat -c%s "$tg_apk" 2>/dev/null || echo 0)
             max_bytes=$((50 * 1024 * 1024))
             if [ "$size" -gt "$max_bytes" ]; then
-              arm64_apk="$RUNNER_TEMP/tg-apk/${apk%.apk}-arm64.apk"
-              cp "$tg_apk" "$arm64_apk"
-              zip -d "$arm64_apk" "lib/armeabi-v7a/*" "lib/x86_64/*" 2>/dev/null || true
-              arm64_size=$(stat -c%s "$arm64_apk" 2>/dev/null || echo 0)
-              if [ "$arm64_size" -gt 0 ] && [ "$arm64_size" -le "$max_bytes" ]; then
-                rm -f "$tg_apk"
-              else
-                zip -1 "$RUNNER_TEMP/tg-apk/${apk}.zip" "$arm64_apk"
-                rm -f "$tg_apk" "$arm64_apk"
-              fi
+              zip -1 "$RUNNER_TEMP/tg-apk/${apk}.zip" "$tg_apk"
+              rm -f "$tg_apk"
             fi
             echo "has_apk=true" >> "$GITHUB_OUTPUT"
           fi
@@ -364,6 +359,47 @@ jobs:
               f.write(f"acc={acc}\n")
           '
 
+      - name: Calculate run duration
+        id: run_duration
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 -c '
+          import urllib.request, json, os, datetime
+
+          run_id = "${{ github.run_id }}"
+          repo = "${{ github.repository }}"
+          token = os.environ.get("GH_TOKEN", "")
+
+          req = urllib.request.Request(
+              f"https://api.github.com/repos/{repo}/actions/runs/{run_id}",
+              headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"}
+          )
+          duration_str = ""
+          try:
+              with urllib.request.urlopen(req, timeout=10) as resp:
+                  data = json.loads(resp.read().decode())
+                  start_time = data.get("run_started_at") or data.get("created_at")
+                  if start_time:
+                      t1 = datetime.datetime.fromisoformat(start_time.replace("Z", "+00:00"))
+                      t2 = datetime.datetime.now(datetime.timezone.utc)
+                      secs = max(1, int((t2 - t1).total_seconds()))
+                      m = secs // 60
+                      s = secs % 60
+                      parts = []
+                      if m > 0:
+                          parts.append(f"{m} دقيقة" if m == 1 else (f"{m} دقائق" if 3 <= m <= 10 else f"{m} دقيقة"))
+                      if s > 0 or not parts:
+                          parts.append(f"{s} ثانية" if s == 1 else (f"{s} ثواني" if 3 <= s <= 10 else f"{s} ثانية"))
+                      duration_str = " · ".join(parts)
+          except Exception as e:
+              print(f"Error calculating duration: {e}")
+
+          print(f"duration={duration_str}")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write(f"duration={duration_str}\n")
+          '
+
       - uses: ./.github/actions/notify
         with:
           bot-token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -376,6 +412,7 @@ jobs:
           details: ${{ steps.sum.outputs.details }}
           document: ${{ steps.tg_doc.outputs.doc }}
           test-account: ${{ steps.test_acc.outputs.acc }}
+          duration: ${{ steps.run_duration.outputs.duration }}
           links: |
             التشغيل|${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
             ${{ needs.android.outputs.release_url && format('الـ APK|{0}', needs.android.outputs.release_url) || '' }}
