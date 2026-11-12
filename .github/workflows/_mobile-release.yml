@@ -117,7 +117,10 @@ jobs:
           KS_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           KP_VAL: ${{ secrets.ANDROID_KEY_PROPERTIES }}
         run: |
-          [ -n "$KS_B64" ] && echo "$KS_B64" | base64 -d > app/android/app/upload-keystore.jks
+          if [ -n "$KS_B64" ]; then
+            echo "$KS_B64" | base64 -d > app/android/app/upload-keystore.jks
+            echo "$KS_B64" | base64 -d > app/android/upload-keystore.jks
+          fi
           [ -n "$KP_VAL" ] && printf '%s\n' "$KP_VAL" > app/android/key.properties
           exit 0
 
@@ -179,6 +182,13 @@ jobs:
             cp app/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk "$apk"
           elif [ -f "app/build/app/outputs/flutter-apk/app-release.apk" ]; then
             cp app/build/app/outputs/flutter-apk/app-release.apk "$apk"
+          fi
+
+          # Verify APK signature before release
+          signer=$(find "$ANDROID_HOME/build-tools" -name apksigner 2>/dev/null | sort -V | tail -n 1)
+          if [ -n "$signer" ] && [ -f "$apk" ]; then
+            echo "Verifying APK signature with $signer..."
+            "$signer" verify -v "$apk" || { echo "ERROR: APK is not signed properly!"; exit 1; }
           fi
 
           release_files=("$apk")
