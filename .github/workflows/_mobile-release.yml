@@ -149,7 +149,7 @@ jobs:
       - name: Build APK
         working-directory: app
         run: |
-          flutter build apk --release \
+          flutter build apk --release --split-per-abi \
             --dart-define-from-file="$RUNNER_TEMP/defines.json" \
             --build-name="${{ steps.ver.outputs.name }}" --build-number="${{ steps.ver.outputs.code }}"
 
@@ -172,28 +172,32 @@ jobs:
           repo="twseel-station/${{ inputs.app }}"
           tag="v${NAME}-${CODE}-${{ inputs.env }}"
           apk="${{ inputs.app }}-${NAME}+${CODE}-${{ inputs.env }}.apk"
-          cp app/build/app/outputs/flutter-apk/app-release.apk "$apk"
+          apk_v7="${{ inputs.app }}-${NAME}+${CODE}-${{ inputs.env }}-armv7.apk"
+
+          # Use official arm64-v8a split APK (~19MB, signed and untouched)
+          if [ -f "app/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk" ]; then
+            cp app/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk "$apk"
+          elif [ -f "app/build/app/outputs/flutter-apk/app-release.apk" ]; then
+            cp app/build/app/outputs/flutter-apk/app-release.apk "$apk"
+          fi
+
+          release_files=("$apk")
+          if [ -f "app/build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk" ]; then
+            cp app/build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk "$apk_v7"
+            release_files+=("$apk_v7")
+          fi
+
           gh release delete "$tag" --repo "$repo" --cleanup-tag --yes 2>/dev/null || true
-          gh release create "$tag" "$apk" --repo "$repo" --target "${{ steps.src.outputs.sha }}" \
+          gh release create "$tag" "${release_files[@]}" --repo "$repo" --target "${{ steps.src.outputs.sha }}" \
             ${{ inputs.env != 'production' && '--prerelease' || '' }} \
             --title "${{ inputs.app }} ${NAME} (${CODE}) · ${{ inputs.env }}" \
             --notes "$MSG"
           echo "url=$(gh release view "$tag" --repo "$repo" --json url -q .url)" >> "$GITHUB_OUTPUT"
 
-          # Prepare dev APK for Telegram chat (< 50MB)
-          # IMPORTANT: Do NOT strip files from a signed APK with `zip -d` as it invalidates v2/v3 signatures!
-          # Instead, if the universal APK is <= 50MB, send it directly.
-          # If it exceeds 50MB, compress it as a valid .zip for Telegram delivery, preserving its signature.
-          if [ "${{ inputs.env }}" != "production" ]; then
+          # Send pure, untouched .apk directly to Telegram (< 50MB, no zip, valid signature)
+          if [ "${{ inputs.env }}" != "production" ] && [ -f "$apk" ]; then
             mkdir -p "$RUNNER_TEMP/tg-apk"
-            tg_apk="$RUNNER_TEMP/tg-apk/$apk"
-            cp "$apk" "$tg_apk"
-            size=$(stat -c%s "$tg_apk" 2>/dev/null || echo 0)
-            max_bytes=$((50 * 1024 * 1024))
-            if [ "$size" -gt "$max_bytes" ]; then
-              zip -1 "$RUNNER_TEMP/tg-apk/${apk}.zip" "$tg_apk"
-              rm -f "$tg_apk"
-            fi
+            cp "$apk" "$RUNNER_TEMP/tg-apk/$apk"
             echo "has_apk=true" >> "$GITHUB_OUTPUT"
           fi
 

@@ -99,16 +99,6 @@ def build_message():
 
     out = [head]
 
-    # Timestamp in Riyadh timezone (UTC+3)
-    try:
-        tz = zoneinfo.ZoneInfo("Asia/Riyadh")
-        now = datetime.datetime.now(tz)
-    except Exception:
-        now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=3)))
-    time_str = now.strftime("%Y-%m-%d · %I:%M %p")
-    time_str = time_str.replace("AM", "صباحاً").replace("PM", "مساءً")
-    out.append(f"⏰ وقت الرفع: <code>{html.escape(time_str)}</code>")
-
     # Duration taken by the action/run
     duration = os.environ.get("DURATION", "").strip()
     if duration:
